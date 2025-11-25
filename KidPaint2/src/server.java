@@ -110,7 +110,7 @@ public class server extends Thread {
     ArrayList<client> clientList = new ArrayList<>();
     String name;
     ServerSocket serverSocket;
-
+    ArrayList<client> disconnected = new ArrayList<>();
     public server(String groupName, serverSharedData data) throws IOException {
         // setup
         serverSocket = new ServerSocket(port);
@@ -133,8 +133,8 @@ public class server extends Thread {
             // registered users loop
             synchronized (clientList) {
                 for (int i = 0; i != clientList.size(); i++) {
+                    client temp = clientList.get(i);
                     try {
-                        client temp = clientList.get(i);
                         DataInputStream in = new DataInputStream(temp.socket.getInputStream());
                         DataOutputStream out = new DataOutputStream(temp.socket.getOutputStream());
                         if (in.available() != 0) {
@@ -148,12 +148,65 @@ public class server extends Thread {
                                     out.writeBytes(message);
                                     out.flush();
                                     break;
+                                case 300:
+                                    // message
+                                    int size = in.readInt();
+                                    byte[] chat = in.readNBytes(size);
+                                    System.out.println("[server] Action code 300 - Message");
+                                    synchronized(clientList){
+                                        clientList.removeAll(disconnected);
+                                        for(client c : clientList){
+                                            try{
+                                                DataOutputStream clientout = new DataOutputStream(c.socket.getOutputStream());
+                                                clientout.writeInt(300);
+                                                clientout.writeInt(size);
+                                                clientout.write(chat);
+                                                clientout.flush();
+                                            }
+                                            catch (IOException e){
+                                                System.out.println("[server] Client disconnected: " + c.name);
+                                                disconnected.add(temp);
+                                            }
+                                        }
+                                    }
+                                    disconnected.clear();
+                                    break;
+                                case 400:
+                                    int len= in.readInt();
+                                    byte[] drawingUpdate = in.readNBytes(len);
+                                    System.out.println("[server] Action code 400 - Drawing Action");
+                                    synchronized (clientList){
+                                        clientList.removeAll(disconnected);
+                                        for(client c: clientList){
+                                            try{
+                                                DataOutputStream clientout = new DataOutputStream(c.socket.getOutputStream());
+                                                clientout.writeInt(400);
+                                                clientout.writeInt(len);
+                                                clientout.write(drawingUpdate);
+                                                clientout.flush();
+                                            }
+                                            catch(IOException ex){
+                                                System.out.println("[server] Client disconnected: " + c.name);
+                                                disconnected.add(temp);
+                                            }
+                                        }
+                                    }
+                                    disconnected.clear();
+                                    break;
+                                default:
+                                    System.out.println("[server] This is NOT supposed to happen");
+                                    break;
                             }
 
                         }
-                    } catch (IOException e) {}
+                    } catch (IOException e) {
+                        System.out.println("[server] Client disconnected: " + temp.name);
+                        disconnected.add(temp);
+                    }
                 }
             }
+            clientList.removeAll(disconnected);
+            disconnected.clear();
 
         }
     }

@@ -5,7 +5,10 @@ import javafx.fxml.FXML;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.control.Button;
 import javafx.scene.control.ChoiceBox;
+import javafx.scene.control.TextArea;
+import javafx.scene.control.TextField;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.image.PixelReader;
@@ -14,7 +17,10 @@ import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.scene.Parent;
 
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.LinkedList;
 
 public class MainWindow {
@@ -32,6 +38,15 @@ public class MainWindow {
 
     @FXML
     Pane paneColor;
+
+    @FXML
+    TextArea areaMsg;
+
+    @FXML
+    TextField txtMsg;
+
+    @FXML
+    Button btnSend;
 
     client client;
     String username;
@@ -132,7 +147,55 @@ public class MainWindow {
         canvas.setOnMouseReleased(event->{
             if (!isPenMode)
                 bucketToData(event.getX(), event.getY());
+
+            if(!filledPixels.isEmpty()){
+                drawToData(filledPixels);
+                filledPixels.clear();
+            }
         });
+
+        btnSend.setOnMouseClicked(event-> sendMessage());
+
+        new Thread(()->{
+            try {
+                DataInputStream input = new DataInputStream(client.serverSocket.getInputStream());
+                while(true){
+                    int actioncode = input.readInt();
+                    if(actioncode==300){
+                        int size = input.readInt();
+                        byte[] message = input.readNBytes(size);
+                        String Message = new String(message);
+
+                        javafx.application.Platform.runLater(() ->{
+                            areaMsg.appendText(Message + "\n");
+                        });
+                    }
+                    if(actioncode==400){
+                        int size = input.readInt();
+                        byte[] actions = input.readNBytes(size);
+                        String actionstring = new String(actions);
+
+                        String[] actionlist = actionstring.split(";");
+                        for(String action : actionlist){
+                            if(action.isEmpty()){
+                                continue;
+                            }
+                            String[] parts = action.split(",");
+                            int col = Integer.parseInt(parts[0]);
+                            int row = Integer.parseInt(parts[1]);
+                            int argb = Integer.parseInt(parts[2]);
+
+                            data[row][col]= argb;
+                        }
+                        javafx.application.Platform.runLater(this::render);
+                    }
+                }
+            }
+            catch (IOException ex){
+                ex.printStackTrace();
+            }
+
+        }).start();
 
         initColorMap();
     }
@@ -282,6 +345,44 @@ public class MainWindow {
             }
             x = startX;
             y += pixelSize;
+        }
+
+    }
+
+
+    void sendMessage(){
+        try{
+            String msg = username + ":- " + txtMsg.getText();
+            byte[] data = msg.getBytes();
+
+            DataOutputStream msgOut = new DataOutputStream(client.serverSocket.getOutputStream());
+            msgOut.writeInt(300);
+            msgOut.writeInt(data.length);
+            msgOut.write(data);
+            msgOut.flush();
+            txtMsg.clear();
+        }
+        catch (IOException ex){
+            ex.printStackTrace();
+        }
+    }
+
+    void drawToData(LinkedList<Point> pixels){
+        try{
+            StringBuilder p2b = new StringBuilder();
+            for (Point p : pixels) {
+                p2b.append(p.x).append(",").append(p.y).append(",").append(selectedColorARGB).append(";");
+            }
+            byte[] drawingUpdate = p2b.toString().getBytes();
+
+            DataOutputStream out = new DataOutputStream(client.serverSocket.getOutputStream());
+            out.writeInt(400);
+            out.writeInt(drawingUpdate.length);
+            out.write(drawingUpdate);
+            out.flush();
+        }
+        catch(IOException ex){
+            ex.printStackTrace();
         }
 
     }
